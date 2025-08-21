@@ -1,0 +1,25 @@
+:root {
+  --bg: #F5F8FA;         /* overall background */
+  --panel: #FFFFFF;      /* white panels */
+  --panel-alt: #E0D2EB;  /* light gray separators */
+  --text: #555555; 
+  --bold-text: #000000;  /* primary text (dark gray/black) */
+  --muted: #AAAAAA;      /* muted text (gray) */
+  --primary: #804FA5;    /* primary accent */
+  --success: #17BF63;    /* green for success */
+  --danger: #E0245E;     /* pinkish red for danger */
+  --radius: 14px;
+  --shadow: 0 8px 24px rgba(0,0,0,0.15);
+  --ring: 0 0 0 2px var(--primary);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 1px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+}

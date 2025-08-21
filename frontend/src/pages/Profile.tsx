@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useProfileFeed } from '../hooks/useProfile'
-import FeedList from '../components/FeedList'
+import TweetFeed from '../components/TweetFeed'
 
 export default function Profile() {
   const { handle = '' } = useParams()
@@ -11,7 +11,7 @@ export default function Profile() {
       {q.status==='pending' && <div>Loading…</div>}
       {q.status==='error' && <div>Failed to load</div>}
       {q.status==='success' && (
-        <FeedList
+        <TweetFeed
           pages={q.data.pages}
           fetchNextPage={q.fetchNextPage}
           hasNextPage={q.hasNextPage}

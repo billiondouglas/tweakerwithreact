@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 import { Post } from '../types'
-import PostItem from '../components/PostItem'
+import TweetItem from '../components/TweetItem'
 
 export default function Search() {
   const [q,setQ] = useState(''); const [items,setItems] = useState<Post[]>([]); const [loading,setLoading] = useState(false)

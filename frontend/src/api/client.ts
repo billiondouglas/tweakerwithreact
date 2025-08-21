@@ -1,7 +1,10 @@
 import axios from 'axios'
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
-export const api = axios.create({ baseURL: BASE })
+export const api = axios.create({
+  baseURL: "http://localhost:4000", // your backend port
+  withCredentials: true,            // if using sessions
+})
 
 // bootstrap anon token once
 const storageKey = 'anon_token'
