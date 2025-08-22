@@ -1,4 +1,4 @@
-import { FaCheckCircle } from "react-icons/fa";
+import { FaRegHeart, FaRegComment, FaRetweet, FaRegBookmark, FaCheckCircle } from "react-icons/fa";
 import { useEffect, useState, useCallback, useRef } from "react";
 
 interface CommentItem {
@@ -7,6 +7,10 @@ interface CommentItem {
   text: string;
   relative_time: string;
   created_at: string;
+  repliesCount?: number;
+  retweetsCount?: number;
+  likesCount?: number;
+  viewsCount?: number;
 }
 
 interface CommentsProps {
@@ -409,18 +413,6 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
                 <div style={{ color: "#f00", fontSize: 13, marginBottom: 8 }}>{error}</div>
               )}
 
-              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                {comments.map((c, idx) => (
-                  <li key={idx} style={{ marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                      <strong style={{ color: "var(--text)" }}>{c.fullName}</strong>
-                      <span style={{ color: "var(--muted)" }}>@{c.username}</span>
-                      <span style={{ color: "var(--muted)", marginLeft: 6 }}>{c.relative_time}</span>
-                    </div>
-                    <p style={{ margin: "4px 0", fontSize: 15, color: "var(--text)" }}>{c.text}</p>
-                  </li>
-                ))}
-              </ul>
             </div>
           </div>
         </div>
@@ -430,13 +422,138 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
       {showList && (
         <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0 0" }}>
           {comments.map((c, idx) => (
-            <li key={idx} style={{ marginBottom: 10, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                <strong style={{ color: "var(--text)" }}>{c.fullName}</strong>
-                <span style={{ color: "var(--muted)" }}>@{c.username}</span>
-                <span style={{ color: "var(--muted)", marginLeft: 6 }}>{c.relative_time}</span>
+            <li key={idx} style={{ position: 'relative', padding: "8px 0" }}>
+              <div style={{ display: "flex", gap: 12 }}>
+                {/* Left rail: avatar + connector line to next comment */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 40 }}>
+                  <img
+                    src={"/images/avatar.png"}
+                    alt={c.username}
+                    style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }}
+                  />
+                  {/* Vertical connector to next item, hidden for the last */}
+                  {idx < comments.length - 1 ? (
+                    <div style={{ flex: 1, width: 2, background: 'var(--border, #e5e7eb)', marginTop: 6 }} />
+                  ) : (
+                    <div style={{ flex: 1, width: 2, background: 'transparent', marginTop: 6 }} />
+                  )}
+                </div>
+
+                {/* Right: rounded comment card */}
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    background: '#fff',
+                    border: '1px solid var(--border, #e5e7eb)',
+                    borderRadius: 16,
+                    padding: '12px 14px',
+                  }}
+                >
+                  {/* Meta row: name, handle, dot, time */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <strong style={{ color: "var(--text)", fontSize: 15 }}>{c.fullName}</strong>
+                    <span style={{ color: "var(--muted)", fontSize: 14 }}>@{c.username}</span>
+                    <span style={{ color: "var(--muted)" }}>·</span>
+                    <span style={{ color: "var(--muted)", fontSize: 13 }}>{c.relative_time}</span>
+                  </div>
+
+                  {/* Text */}
+                  <div style={{ marginTop: 6, color: "var(--text)", fontSize: 15, lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: 'left' }}>
+                    {c.text}
+                  </div>
+
+                  {/* Actions row: reply, retweet, like, views (left); bookmark + share (right) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 18, marginTop: 10, color: 'var(--muted)' }}>
+                    {/* Reply */}
+                    <button
+                      type="button"
+                      aria-label="Reply"
+                      className="c-action"
+                      style={{ display:'flex', alignItems:'center', gap: 6, background:'none', border:'none', cursor:'pointer', padding:0, color:'inherit', position:'relative' }}
+                      onClick={(e) => { e.stopPropagation(); }}
+                    >
+                      <span className="action-icon" style={{ fontSize: 15 }}><FaRegComment /></span>
+                      <span className="count" style={{ fontSize: 15, color: 'var(--muted)' }}>{typeof c.repliesCount === 'number' ? c.repliesCount : 0}</span>
+                      <span className="c-tip">Reply</span>
+                    </button>
+
+                    {/* Retweet */}
+                    <button
+                      type="button"
+                      aria-label="Retweet"
+                      className="c-action"
+                      style={{ display:'flex', alignItems:'center', gap: 6, background:'none', border:'none', cursor:'pointer', padding:0, color:'inherit', position:'relative' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="action-icon" style={{ fontSize: 17 }}><FaRetweet /></span>
+                      <span className="count" style={{ fontSize: 15, color: 'var(--muted)' }}>{typeof c.retweetsCount === 'number' ? c.retweetsCount : 0}</span>
+                      <span className="c-tip">Retweet</span>
+                    </button>
+
+                    {/* Like */}
+                    <button
+                      type="button"
+                      aria-label="Like"
+                      className="c-action"
+                      style={{ display:'flex', alignItems:'center', gap: 6, background:'none', border:'none', cursor:'pointer', padding:0, color:'inherit', position:'relative' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="action-icon" style={{ fontSize: 15 }}><FaRegHeart /></span>
+                      <span className="count" style={{ fontSize: 15, color: 'var(--muted)' }}>{typeof c.likesCount === 'number' ? c.likesCount : 0}</span>
+                      <span className="c-tip">Like</span>
+                    </button>
+
+                    {/* Views */}
+                    <div
+                      className="c-action"
+                      style={{ display:'flex', alignItems:'center', gap: 6, background:'none', border:'none', cursor:'pointer', padding:0, color:'inherit', position:'relative' }}
+                    >
+                      <span className="action-icon" style={{ fontSize: 15 }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+                        </svg>
+                      </span>
+                      <span className="count" style={{ fontSize: 15, color: 'var(--muted)' }}>{typeof c.viewsCount === 'number' ? c.viewsCount : 0}</span>
+                      <span className="c-tip">Views</span>
+                    </div>
+
+                    {/* Right group: Bookmark + Share */}
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+                      {/* Bookmark */}
+                      <button
+                        type="button"
+                        aria-label="Bookmark"
+                        className="c-action"
+                        style={{ display:'flex', alignItems:'center', background:'none', border:'none', cursor:'pointer', padding:0, color:'inherit', position:'relative' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="action-icon" style={{ fontSize: 15 }}><FaRegBookmark /></span>
+                        <span className="c-tip">Bookmark</span>
+                      </button>
+
+                      {/* Share */}
+                      <button
+                        type="button"
+                        aria-label="Share"
+                        className="c-action"
+                        style={{ display:'flex', alignItems:'center', background:'none', border:'none', cursor:'pointer', padding:0, color:'inherit', position:'relative' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="action-icon" style={{ fontSize: 15 }}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M16 6l-4-4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M12 2v14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </span>
+                        <span className="c-tip">Share</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <p style={{ margin: "4px 0", fontSize: 15, color: "var(--text)" }}>{c.text}</p>
             </li>
           ))}
         </ul>
@@ -445,6 +562,26 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
       <style>
         {`
           .close-btn:hover { background: #f3f3f3; }
+          .c-action { position: relative; }
+          .c-action .c-tip {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translate(-50%, 6px);
+            /* background: rgba(17,17,17,0.9); */
+            /* color: #fff; */
+            color: var(--text);
+            padding: 2px 6px;
+            font-size: 11px;
+            line-height: 1.2;
+            border-radius: 10px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .15s ease, transform .15s ease;
+          }
+          .c-action:hover .c-tip { opacity: 1; transform: translate(-50%, 10px); }
+          .count { font-variant-numeric: tabular-nums; }
         `}
       </style>
     </>
