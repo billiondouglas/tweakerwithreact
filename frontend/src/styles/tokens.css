@@ -4,11 +4,11 @@
   --panel-alt: #E0D2EB;  /* light gray separators */
   --text: #555555; 
   --bold-text: #000000;  /* primary text (dark gray/black) */
-  --muted: #AAAAAA;      /* muted text (gray) */
-  --primary: #804FA5;    /* primary accent */
+  --muted: #676767;      /* muted text (gray) */
+  --primary: #9d33ee;    /* primary accent */
   --success: #17BF63;    /* green for success */
   --danger: #E0245E;     /* pinkish red for danger */
-  --radius: 14px;
+  --radius: 2em;
   --shadow: 0 8px 24px rgba(0,0,0,0.15);
   --ring: 0 0 0 2px var(--primary);
 }

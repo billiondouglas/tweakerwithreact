@@ -11,6 +11,7 @@ interface CommentItem {
   retweetsCount?: number;
   likesCount?: number;
   viewsCount?: number;
+  verified?: boolean;
 }
 
 interface CommentsProps {

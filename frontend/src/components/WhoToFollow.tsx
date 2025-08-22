@@ -1,15 +1,37 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import axios from "axios";
+
+interface User {
+  id: string;
+  username: string;
+  fullName: string;
+  avatar: string;
+}
+
 export function WhoToFollow(){
-  const items = [1,2,3,4,5,6];
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    axios.get(`${import.meta.env.VITE_API_BASE}/users/suggested`)
+      .then(response => {
+        setUsers(Array.isArray(response.data) ? response.data : []);
+      })
+      .catch(error => {
+        console.error("Error fetching suggested users:", error);
+        setUsers([]);
+      });
+  }, []);
+
   return (
     <div className="panel" style={{padding:16}}>
       <div style={{ fontWeight: 700, color: "var(--bold-text)", textAlign: "left" }}>
         Who to follow
       </div>
       <div className="separator"/>
-      {items.slice(0,3).map(i=>(
+      {users.slice(0,3).map((user: User)=>(
         <div
-          key={i}
+          key={user.username}
           style={{
             display: "flex",
             alignItems: "center",
@@ -21,7 +43,7 @@ export function WhoToFollow(){
         >
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <img
-              src="/images/avatar.png"
+              src={user.avatar || "/images/avatar.png"}
               width={40}
               height={40}
               alt="User avatar"
@@ -29,10 +51,10 @@ export function WhoToFollow(){
             />
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
               <span style={{ fontWeight: 700, color: "var(--text)" }}>
-                Product Hunt
+                {user.fullName}
               </span>
               <span style={{ color: "var(--muted)", fontSize: "14px" }}>
-                @ProductHunt
+                @{user.username}
               </span>
             </div>
           </div>

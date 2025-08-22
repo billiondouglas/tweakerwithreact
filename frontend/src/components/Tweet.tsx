@@ -39,6 +39,12 @@ export function Tweet(props: TweetProps) {
   const [showReply, setShowReply] = useState(false); // reply modal
   const [showThread, setShowThread] = useState(false); // thread modal (shows comments list)
   const [replyCount, setReplyCount] = useState<number>(replies ?? 0);
+  const [liked, setLiked] = useState(false);
+  const [likeHovered, setLikeHovered] = useState(false);
+  const [retweeted, setRetweeted] = useState(false);
+  const [retweetHovered, setRetweetHovered] = useState(false);
+  const [retweetCount, setRetweetCount] = useState<number>(retweets ?? 0);
+  const [likeCount, setLikeCount] = useState<number>(likes ?? 0);
   const hasId = Boolean(id);
 
   // Lock body scroll when thread modal is open
@@ -129,23 +135,115 @@ export function Tweet(props: TweetProps) {
                 </div>
                 <span className="action-count">{replyCount}</span>
               </div>
-              <div className="action-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div
+                className="action-group"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  color:
+                    retweeted || retweetHovered
+                      ? "green"
+                      : "var(--muted)",
+                  fontWeight: retweeted ? 700 : undefined,
+                }}
+                onMouseEnter={() => setRetweetHovered(true)}
+                onMouseLeave={() => setRetweetHovered(false)}
+                onClick={() => {
+                  setRetweeted((prev) => {
+                    if (prev) {
+                      setRetweetCount((c) => c - 1);
+                      return false;
+                    } else {
+                      setRetweetCount((c) => c + 1);
+                      return true;
+                    }
+                  });
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setRetweeted((prev) => {
+                      if (prev) {
+                        setRetweetCount((c) => c - 1);
+                        return false;
+                      } else {
+                        setRetweetCount((c) => c + 1);
+                        return true;
+                      }
+                    });
+                  }
+                }}
+                aria-label="Retweet"
+                title="Retweet"
+              >
                 <div className="icon-wrap">
                   <span className="action-icon"><FaRetweet /></span>
                   <span className="icon-label">Retweet</span>
                 </div>
-                <span className="action-count">{retweets ?? 0}</span>
+                <span className="action-count">
+                  {retweetCount >= 1000
+                    ? `${(retweetCount / 1000).toFixed(retweetCount % 1000 === 0 ? 0 : 1)}K`
+                    : retweetCount}
+                </span>
               </div>
-              <div className="action-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div
+                className="action-group like-action"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  color:
+                    liked || likeHovered
+                      ? "pink"
+                      : "var(--muted)",
+                  fontWeight: liked ? 700 : undefined,
+                }}
+                onMouseEnter={() => setLikeHovered(true)}
+                onMouseLeave={() => setLikeHovered(false)}
+                onClick={() => {
+                  setLiked((prev) => {
+                    if (prev) {
+                      setLikeCount((c) => c - 1);
+                      return false;
+                    } else {
+                      setLikeCount((c) => c + 1);
+                      return true;
+                    }
+                  });
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setLiked((prev) => {
+                      if (prev) {
+                        setLikeCount((c) => c - 1);
+                        return false;
+                      } else {
+                        setLikeCount((c) => c + 1);
+                        return true;
+                      }
+                    });
+                  }
+                }}
+                aria-label="Like"
+                title="Like"
+              >
                 <div className="icon-wrap">
                   <span className="action-icon"><FaRegHeart /></span>
                   <span className="icon-label">Like</span>
                 </div>
-                <span className="action-count">{
-                  typeof likes === 'number'
-                    ? (likes >= 1000 ? `${(likes/1000).toFixed(likes % 1000 === 0 ? 0 : 1)}K` : likes)
-                    : 0
-                }</span>
+                <span className="action-count">
+                  {likeCount >= 1000
+                    ? `${(likeCount / 1000).toFixed(likeCount % 1000 === 0 ? 0 : 1)}K`
+                    : likeCount}
+                </span>
               </div>
               <div className="action-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div className="icon-wrap">
@@ -282,23 +380,115 @@ export function Tweet(props: TweetProps) {
                             </div>
                             <span className="action-count">{replyCount}</span>
                           </div>
-                          <div className="action-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div
+                            className="action-group"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              cursor: "pointer",
+                              color:
+                                retweeted || retweetHovered
+                                  ? "#0fff03ff"
+                                  : "var(--muted)",
+                              fontWeight: retweeted ? 700 : undefined,
+                            }}
+                            onMouseEnter={() => setRetweetHovered(true)}
+                            onMouseLeave={() => setRetweetHovered(false)}
+                            onClick={() => {
+                              setRetweeted((prev) => {
+                                if (prev) {
+                                  setRetweetCount((c) => c - 1);
+                                  return false;
+                                } else {
+                                  setRetweetCount((c) => c + 1);
+                                  return true;
+                                }
+                              });
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setRetweeted((prev) => {
+                                  if (prev) {
+                                    setRetweetCount((c) => c - 1);
+                                    return false;
+                                  } else {
+                                    setRetweetCount((c) => c + 1);
+                                    return true;
+                                  }
+                                });
+                              }
+                            }}
+                            aria-label="Retweet"
+                            title="Retweet"
+                          >
                             <div className="icon-wrap">
                               <span className="action-icon"><FaRetweet /></span>
                               <span className="icon-label">Retweet</span>
                             </div>
-                            <span className="action-count">{retweets ?? 0}</span>
+                            <span className="action-count">
+                              {retweetCount >= 1000
+                                ? `${(retweetCount / 1000).toFixed(retweetCount % 1000 === 0 ? 0 : 1)}K`
+                                : retweetCount}
+                            </span>
                           </div>
-                          <div className="action-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div
+                            className="action-group like-action"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              cursor: "pointer",
+                              color:
+                                liked || likeHovered
+                                  ? "#ef1bd3ff"
+                                  : "var(--muted)",
+                              fontWeight: liked ? 700 : undefined,
+                            }}
+                            onMouseEnter={() => setLikeHovered(true)}
+                            onMouseLeave={() => setLikeHovered(false)}
+                            onClick={() => {
+                              setLiked((prev) => {
+                                if (prev) {
+                                  setLikeCount((c) => c - 1);
+                                  return false;
+                                } else {
+                                  setLikeCount((c) => c + 1);
+                                  return true;
+                                }
+                              });
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setLiked((prev) => {
+                                  if (prev) {
+                                    setLikeCount((c) => c - 1);
+                                    return false;
+                                  } else {
+                                    setLikeCount((c) => c + 1);
+                                    return true;
+                                  }
+                                });
+                              }
+                            }}
+                            aria-label="Like"
+                            title="Like"
+                          >
                             <div className="icon-wrap">
                               <span className="action-icon"><FaRegHeart /></span>
                               <span className="icon-label">Like</span>
                             </div>
-                            <span className="action-count">{
-                              typeof likes === 'number'
-                                ? (likes >= 1000 ? `${(likes/1000).toFixed(likes % 1000 === 0 ? 0 : 1)}K` : likes)
-                                : 0
-                            }</span>
+                            <span className="action-count">
+                              {likeCount >= 1000
+                                ? `${(likeCount / 1000).toFixed(likeCount % 1000 === 0 ? 0 : 1)}K`
+                                : likeCount}
+                            </span>
                           </div>
                           <div className="action-group" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div className="icon-wrap">
@@ -344,3 +534,5 @@ export function Tweet(props: TweetProps) {
     </article>
   );
 }
+
+export default Tweet;

@@ -4,6 +4,30 @@ import Tweet from '../models/tweet.js'
 
 const router = Router()
 
+// GET /users/suggested?take=6
+// Returns a plain array of users: [{ id, fullName, username, avatar }]
+router.get('/suggested', async (req: Request, res: Response) => {
+  try {
+    const take = Math.min(Number(req.query.take) || 6, 50)
+    const docs = await User.find({}, { username: 1, fullName: 1, avatar: 1 })
+      .sort({ createdAt: -1 })
+      .limit(take)
+      .lean()
+
+    const users = (docs || []).map((u: any) => ({
+      id: String(u._id),
+      fullName: u.fullName || u.username || '',
+      username: u.username || '',
+      avatar: u.avatar || null,
+    }))
+
+    return res.json(users)
+  } catch (e) {
+    console.error('GET /users/suggested error:', e)
+    return res.status(500).json({ error: 'server_error' })
+  }
+})
+
 // Helper: build cursor query for stable pagination by createdAt then _id
 function buildCursorQuery(cursor?: string) {
   if (!cursor) return {}

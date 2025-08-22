@@ -88,7 +88,7 @@ router.post('/', authenticateJWT, async (req: Request & { user?: any }, res: Res
     created_at: doc.createdAt.toISOString(),
     relative_time: timeAgo(doc.createdAt),
     user: { fullName: author?.fullName || doc.username, username: doc.username },
-    like_count: Array.isArray(doc.likes) ? doc.likes.length : 0,
+    like_count: Array.isArray((doc as any).likes) ? (doc as any).likes.length : Array.isArray((doc as any).likesBy) ? (doc as any).likesBy.length : 0,
     repost_count: Array.isArray(doc.retweets) ? doc.retweets.length : 0,
     reply_count: Array.isArray(doc.comments) ? doc.comments.length : 0,
     view_count: (doc as any).views ?? 0,
@@ -123,7 +123,7 @@ router.get('/feed/global', async (req: Request, res: Response) => {
       relative_time: timeAgo(p.createdAt),
       parent_post_id: null,
       user: { fullName: nameByUsername.get(p.username) || p.username, username: p.username },
-      like_count: p.likes?.length || 0,
+      like_count: (Array.isArray((p as any).likes) ? (p as any).likes.length : Array.isArray((p as any).likesBy) ? (p as any).likesBy.length : 0),
       repost_count: p.retweets?.length || 0,
       reply_count: p.comments?.length || 0,
       view_count: (p as any).views ?? 0,
@@ -147,7 +147,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     relative_time: timeAgo(p.createdAt),
     parent_post_id: null,
     user: { fullName: author?.fullName || p.username, username: p.username },
-    like_count: p.likes?.length || 0,
+    like_count: (Array.isArray((p as any).likes) ? (p as any).likes.length : Array.isArray((p as any).likesBy) ? (p as any).likesBy.length : 0),
     repost_count: p.retweets?.length || 0,
     reply_count: p.comments?.length || 0,
     view_count: (p as any).views ?? 0,
@@ -163,9 +163,22 @@ router.post('/:id/like', authenticateJWT, async (req: Request & { user?: any }, 
   if (!t) return res.status(404).json({ error: 'not_found' })
   const uid = req.user!._id
   const has = (t.likes || []).some((id: any) => String(id) === String(uid))
-  t.likes = has ? t.likes.filter((id: any) => String(id) !== String(uid)) : [...(t.likes || []), uid]
+
+  // Step 1: accept body `{ like: boolean }` for explicit set; fallback to toggle if undefined
+  const desired: boolean | undefined = typeof req.body?.like === 'boolean' ? Boolean(req.body.like) : undefined
+
+  if (desired === undefined) {
+    // legacy toggle
+    t.likes = has ? (t.likes || []).filter((id: any) => String(id) !== String(uid)) : [ ...(t.likes || []), uid ]
+  } else if (desired && !has) {
+    t.likes = [ ...(t.likes || []), uid ]
+  } else if (!desired && has) {
+    t.likes = (t.likes || []).filter((id: any) => String(id) !== String(uid))
+  } // else no change needed
+
   await t.save()
-  res.json({ ok: true, like_count: t.likes.length })
+  const liked = (t.likes || []).some((id: any) => String(id) === String(uid))
+  res.json({ ok: true, liked, like_count: t.likes.length })
 })
 
 router.delete('/:id/like', authenticateJWT, async (req: Request & { user?: any }, res: Response) => {
@@ -174,7 +187,7 @@ router.delete('/:id/like', authenticateJWT, async (req: Request & { user?: any }
   const uid = req.user!._id
   t.likes = (t.likes || []).filter((id: any) => String(id) !== String(uid))
   await t.save()
-  res.json({ ok: true, like_count: t.likes.length })
+  res.json({ ok: true, liked: false, like_count: t.likes.length })
 })
 
 /**
@@ -211,6 +224,45 @@ router.post('/:id/report', async (req: Request, res: Response) => {
   const { reason } = z.object({ reason: z.string().min(1).max(200) }).parse(req.body)
   console.warn('report received', { postId: req.params.id, reason })
   return res.json({ ok: true })
+})
+
+/**
+ * GET /posts/user/:username?cursor=<iso>|<id>
+ * Returns posts authored by :username, newest first, same shape as global feed.
+ */
+router.get('/user/:username', async (req: Request, res: Response) => {
+  const { username } = req.params
+  const cursor = (req.query.cursor as string | undefined) ?? undefined
+  const take = 20
+  const sort = { createdAt: -1, _id: -1 } as const
+
+  const base = { username }
+  const q = cursor ? { $and: [base, buildCursorQuery(cursor)] } : base
+
+  const items = await Tweet.find(q).sort(sort).limit(take)
+  const next = items.length === take
+    ? `${items[items.length - 1].createdAt.toISOString()}|${items[items.length - 1]._id}`
+    : null
+
+  // single author lookup
+  const author = await User.findOne({ username }).select('username fullName').lean()
+  const fullName = author?.fullName || username
+
+  res.json({
+    items: items.map(p => ({
+      id: String(p._id),
+      text: p.text,
+      created_at: p.createdAt.toISOString(),
+      relative_time: timeAgo(p.createdAt),
+      parent_post_id: null,
+      user: { fullName, username },
+      like_count: (Array.isArray((p as any).likes) ? (p as any).likes.length : Array.isArray((p as any).likesBy) ? (p as any).likesBy.length : 0),
+      repost_count: p.retweets?.length || 0,
+      reply_count: p.comments?.length || 0,
+      view_count: (p as any).views ?? 0,
+    })),
+    nextCursor: next,
+  })
 })
 
 export default router

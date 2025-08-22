@@ -4,6 +4,7 @@ import { WhoToFollow } from "./components/WhoToFollow";
 import { Trends } from "./components/Trends";
 import { Composer } from "./components/Composer";
 import { Tweet } from "./components/Tweet";
+import Profile from "./components/profile";
 import { useEffect, useState } from "react";
 
 function timeAgo(input: string | Date): string {
@@ -32,7 +33,18 @@ function timeAgo(input: string | Date): string {
 export default function App(){
   const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:4000'
 
-  const [currentUser, setCurrentUser] = useState<{ fullName?: string; username?: string } | null>(null)
+  const [currentUser, setCurrentUser] = useState<{
+    fullName?: string;
+    username?: string;
+    bio?: string;
+    link?: string;
+    joinedDate?: string;
+    following?: number;
+    followers?: number;
+    coverImage?: string;
+    avatar?: string;
+    verified?: boolean;
+  } | null>(null)
   useEffect(() => {
     (async () => {
       try {
@@ -93,7 +105,7 @@ export default function App(){
 
   useEffect(() => { loadFeed() }, [])
 
-  const [active, setActive] = useState<"home"|"messages"|"notifications"|"moment">("home");
+  const [active, setActive] = useState<"home"|"messages"|"notifications"|"moment"|"profile">("home");
 
   return (
     <div>  
@@ -224,38 +236,65 @@ export default function App(){
           overflowY: "auto",
           width: "22%"
         }}>
-          <SidebarCard/><div style={{height:16}}/><WhoToFollow/>
+          {active !== 'profile' && (
+            <>
+              <SidebarCard
+                fullName={currentUser?.fullName || currentUser?.username || "Guest"}
+                username={currentUser?.username || "guest"}
+                onProfileClick={() => setActive('profile')}
+              />
+              <div style={{height:16}}/>
+            </>
+          )}
+          <WhoToFollow/>
         </div>
       }
         center={<>
-          <Composer
-            onPost={async (t) => {
-              try {
-                const at = localStorage.getItem('accessToken') || ''
-                await fetch(`${API_BASE}/posts`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${at}` },
-                  credentials: 'include',
-                  body: JSON.stringify({ text: t }),
-                })
-                await loadFeed()
-              } catch {}
-            }}
-          />
-          {posts.map((p) => (
-            <Tweet
-              id={p.id}
-              key={p.id || `${p.username}-${p.createdAt}`}
-              fullName={p.userFullName}
-              username={p.username}
-              text={p.text}
-              created_at={p.createdAt}
-              likes={p.likes}
-              retweets={p.retweets}
-              replies={p.replies}
-              views={p.views}
+          {active === 'profile' ? (
+            <Profile
+              fullName={currentUser?.fullName || currentUser?.username || "Guest"}
+              verified={currentUser?.verified}
+              username={currentUser?.username || "guest"}
+              bio={currentUser?.bio || ""}
+              link={currentUser?.link || undefined}
+              joinedDate={currentUser?.joinedDate || ""}
+              following={currentUser?.following ?? 0}
+              followers={currentUser?.followers ?? 0}
+              coverImage={currentUser?.coverImage || undefined}
+              avatar={currentUser?.avatar || undefined}
             />
-          ))}
+          ) : (
+            <>
+              <Composer
+                onPost={async (t) => {
+                  try {
+                    const at = localStorage.getItem('accessToken') || ''
+                    await fetch(`${API_BASE}/posts`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${at}` },
+                      credentials: 'include',
+                      body: JSON.stringify({ text: t }),
+                    })
+                    await loadFeed()
+                  } catch {}
+                }}
+              />
+              {posts.map((p) => (
+                <Tweet
+                  id={p.id}
+                  key={p.id || `${p.username}-${p.createdAt}`}
+                  fullName={p.userFullName}
+                  username={p.username}
+                  text={p.text}
+                  created_at={p.createdAt}
+                  likes={p.likes}
+                  retweets={p.retweets}
+                  replies={p.replies}
+                  views={p.views}
+                />
+              ))}
+            </>
+          )}
         </>}
         right={
         <div style={{
