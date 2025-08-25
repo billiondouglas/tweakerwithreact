@@ -1,6 +1,7 @@
 import { FaRegHeart, FaRegComment, FaRetweet, FaRegBookmark, FaCheckCircle } from "react-icons/fa";
 import { useState, useEffect } from "react";
 import Comments from "./comments"
+import Biohover from "./Biohover";
 
 type TweetProps = {
   id: string;
@@ -16,8 +17,10 @@ type TweetProps = {
   replies?: number;
   retweets?: number;
   likes?: number;
+  liked?: boolean;
   views?: string | number;
   onReply?: () => void;
+  avatar?: string;
 }
 
 export function Tweet(props: TweetProps) {
@@ -32,15 +35,18 @@ export function Tweet(props: TweetProps) {
     replies,
     retweets,
     likes,
+    liked: likedProp,
     views,
     onReply,
+    avatar,
   } = props
 
   const [showReply, setShowReply] = useState(false); // reply modal
   const [showThread, setShowThread] = useState(false); // thread modal (shows comments list)
   const [replyCount, setReplyCount] = useState<number>(replies ?? 0);
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState<boolean>(!!likedProp);
   const [likeHovered, setLikeHovered] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
   const [retweeted, setRetweeted] = useState(false);
   const [retweetHovered, setRetweetHovered] = useState(false);
   const [retweetCount, setRetweetCount] = useState<number>(retweets ?? 0);
@@ -63,6 +69,41 @@ export function Tweet(props: TweetProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [showThread]);
 
+  // Sync like state from props when feed updates
+  useEffect(() => {
+    setLiked(!!likedProp);
+    setLikeCount(likes ?? 0);
+  }, [likedProp, likes]);
+
+  const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:4000/api';
+  const toggleLike = async () => {
+    if (!hasId || likeBusy) return;
+    setLikeBusy(true);
+    const prevLiked = liked;
+    const prevCount = likeCount;
+    // optimistic update
+    setLiked(!prevLiked);
+    setLikeCount((c) => c + (prevLiked ? -1 : 1));
+    try {
+      const url = `${API_BASE}/posts/${id}/like`;
+      const res = await fetch(url, {
+        method: prevLiked ? 'DELETE' : 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('like_failed');
+      const data = await res.json();
+      if (typeof data.likes === 'number') setLikeCount(data.likes);
+      if (typeof data.liked === 'boolean') setLiked(data.liked);
+    } catch (e) {
+      // rollback on failure
+      setLiked(prevLiked);
+      setLikeCount(prevCount);
+      console.error('toggleLike error', e);
+    } finally {
+      setLikeBusy(false);
+    }
+  };
+
   const displayName = fullName ?? 'Unknown'
   const displayHandle = username ?? 'unknown'
   const content = text ?? ''
@@ -82,23 +123,44 @@ export function Tweet(props: TweetProps) {
         }
       }}
     >
-      <div style={{ display: "flex", gap: 12 }}>
-        {/* Avatar */}
-        <img src="/images/avatar.png" width={48} height={48} style={{ borderRadius: 999 }} alt="avatar" />
-
-        {/* Content */}
-        <div style={{ flex: 1 }}>
-          {/* Header line */}
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {/* Header line with avatar, name, handle, time */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Biohover username={displayHandle}>
+            <img
+              src={avatar || "/images/avatar.png"}
+              width={36}
+              height={36}
+              style={{ borderRadius: 999, objectFit: "cover" }}
+              alt="avatar"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </Biohover>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontWeight: 800, fontSize: 18, color: 'var(--bold-text)' }}>{displayName}</span>
+            <Biohover username={displayHandle}>
+              <span
+                style={{ fontWeight: 800, fontSize: 18, color: 'var(--bold-text)' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {displayName}
+              </span>
+            </Biohover>
             {verified && <FaCheckCircle size={16} color="var(--primary)" />}
-            <span style={{ color: 'var(--muted)', fontSize: 16 }}>@{displayHandle}</span>
+            <Biohover username={displayHandle}>
+              <span
+                style={{ color: 'var(--muted)', fontSize: 16 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                @{displayHandle}
+              </span>
+            </Biohover>
             {when ? <span style={{ color: 'var(--muted)' }}>·</span> : null}
             {when ? <span style={{ color: 'var(--muted)', fontSize: 16 }}>{when}</span> : null}
           </div>
+        </div>
 
-          {/* Body */}
-          <p style={{ margin: '8px 0 12px', fontSize: 16, lineHeight: 1.4, color: 'var(--text)', textAlign: 'left' }}>{content}</p>
+        {/* Body */}
+        <p style={{ margin: '8px 0 12px', fontSize: 16, lineHeight: 1.4, color: 'var(--text)', textAlign: 'left' }}>{content}</p>
 
           {/* Optional media */}
           {media && (
@@ -196,40 +258,20 @@ export function Tweet(props: TweetProps) {
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
-                  cursor: "pointer",
-                  color:
-                    liked || likeHovered
-                      ? "pink"
-                      : "var(--muted)",
+                  cursor: likeBusy ? "not-allowed" : "pointer",
+                  color: liked || likeHovered ? "pink" : "var(--muted)",
                   fontWeight: liked ? 700 : undefined,
+                  opacity: likeBusy ? 0.7 : 1,
                 }}
                 onMouseEnter={() => setLikeHovered(true)}
                 onMouseLeave={() => setLikeHovered(false)}
-                onClick={() => {
-                  setLiked((prev) => {
-                    if (prev) {
-                      setLikeCount((c) => c - 1);
-                      return false;
-                    } else {
-                      setLikeCount((c) => c + 1);
-                      return true;
-                    }
-                  });
-                }}
+                onClick={(e) => { e.stopPropagation(); toggleLike(); }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    setLiked((prev) => {
-                      if (prev) {
-                        setLikeCount((c) => c - 1);
-                        return false;
-                      } else {
-                        setLikeCount((c) => c + 1);
-                        return true;
-                      }
-                    });
+                    toggleLike();
                   }
                 }}
                 aria-label="Like"
@@ -338,12 +380,35 @@ export function Tweet(props: TweetProps) {
                 </div>
                 <div style={{ padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-                    <img src="/images/avatar.png" width={48} height={48} style={{ borderRadius: 999 }} alt="avatar" />
+                    <Biohover username={displayHandle}>
+                      <img
+                        src={avatar || "/images/avatar.png"}
+                        width={48}
+                        height={48}
+                        style={{ borderRadius: 999, objectFit: "cover" }}
+                        alt="avatar"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Biohover>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontWeight: 800, fontSize: 18, color: 'var(--bold-text)' }}>{displayName}</span>
+                        <Biohover username={displayHandle}>
+                          <span
+                            style={{ fontWeight: 800, fontSize: 18, color: 'var(--bold-text)' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {displayName}
+                          </span>
+                        </Biohover>
                         {verified && <FaCheckCircle size={16} color="var(--primary)" />}
-                        <span style={{ color: 'var(--muted)', fontSize: 16 }}>@{displayHandle}</span>
+                        <Biohover username={displayHandle}>
+                          <span
+                            style={{ color: 'var(--muted)', fontSize: 16 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            @{displayHandle}
+                          </span>
+                        </Biohover>
                         {when ? <span style={{ color: 'var(--muted)' }}>·</span> : null}
                         {when ? <span style={{ color: 'var(--muted)', fontSize: 16 }}>{when}</span> : null}
                       </div>
@@ -441,40 +506,20 @@ export function Tweet(props: TweetProps) {
                               display: "flex",
                               alignItems: "center",
                               gap: 8,
-                              cursor: "pointer",
-                              color:
-                                liked || likeHovered
-                                  ? "#ef1bd3ff"
-                                  : "var(--muted)",
+                              cursor: likeBusy ? "not-allowed" : "pointer",
+                              color: liked || likeHovered ? "#ef1bd3ff" : "var(--muted)",
                               fontWeight: liked ? 700 : undefined,
+                              opacity: likeBusy ? 0.7 : 1,
                             }}
                             onMouseEnter={() => setLikeHovered(true)}
                             onMouseLeave={() => setLikeHovered(false)}
-                            onClick={() => {
-                              setLiked((prev) => {
-                                if (prev) {
-                                  setLikeCount((c) => c - 1);
-                                  return false;
-                                } else {
-                                  setLikeCount((c) => c + 1);
-                                  return true;
-                                }
-                              });
-                            }}
+                            onClick={(e) => { e.stopPropagation(); toggleLike(); }}
                             role="button"
                             tabIndex={0}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
-                                setLiked((prev) => {
-                                  if (prev) {
-                                    setLikeCount((c) => c - 1);
-                                    return false;
-                                  } else {
-                                    setLikeCount((c) => c + 1);
-                                    return true;
-                                  }
-                                });
+                                toggleLike();
                               }
                             }}
                             aria-label="Like"
@@ -530,7 +575,6 @@ export function Tweet(props: TweetProps) {
             <Comments postId={id} visible={true} onPosted={setReplyCount} onClose={() => setShowReply(false)} />
           ) : null}
         </div>
-      </div>
     </article>
   );
 }

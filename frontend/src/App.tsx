@@ -1,3 +1,8 @@
+/**
+ * App.tsx
+ * Root client shell for Tweaker. Hosts top nav, left sidebar, center feed/profile/settings, and right trends.
+ * Uses cookie-first session hydration, event-driven feed refresh, and responsive columns.
+ */
 import AppShell from "./components/AppShell";
 import { SidebarCard } from "./components/SidebarCard";
 import { WhoToFollow } from "./components/WhoToFollow";
@@ -6,14 +11,23 @@ import { Composer } from "./components/Composer";
 import { Tweet } from "./components/Tweet";
 import Profile from "./components/profile";
 import { useEffect, useState } from "react";
+import { FaCheckCircle } from "react-icons/fa";
+import Settings from "./components/settings";
 
+/**
+ * Convert a Date or ISO string into a compact relative time.
+ * Accepts precomputed compact strings like "5m" and returns them unchanged.
+ */
 function timeAgo(input: string | Date): string {
+  // If caller already supplied a compact token like "5m" or "2h", return it as-is
   if (!input) return "";
   if (typeof input === "string" && /\b(s|m|h|d|w|yr)\b/.test(input)) return input;
 
+  // Parse input into Date safely
   const dt = typeof input === "string" ? new Date(input) : input;
   if (!(dt instanceof Date) || isNaN(dt.getTime())) return String(input);
 
+  // Compute diff in seconds, then scale up through minutes/hours/days/weeks/months/years
   const diff = Math.floor((Date.now() - dt.getTime()) / 1000);
   if (diff < 60) return `${diff}s ago`;
   const m = Math.floor(diff / 60);
@@ -30,9 +44,17 @@ function timeAgo(input: string | Date): string {
   return `${y}yr ago`;
 }
 
+/**
+ * Main application component.
+ * - Reads session and current user profile from `/api/users/me` or access token fallback
+ * - Loads global feed and exposes a global `window.loadFeed` for cross-component refresh
+ * - Layout composed by <AppShell left/center/right>
+ */
 export default function App(){
-  const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:4000'
+  // Backend API origin. Prefer VITE_API_BASE; default to local dev server
+  const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:4000/api'
 
+  // Minimal user shape for header, profile, and permissions
   const [currentUser, setCurrentUser] = useState<{
     fullName?: string;
     username?: string;
@@ -46,69 +68,194 @@ export default function App(){
     verified?: boolean;
   } | null>(null)
   useEffect(() => {
+    // Session/User hydration on initial load
+    // 1) If cached in localStorage, use it immediately for snappy paint
+    // 2) Otherwise try cookie-based session `/users/me` for full profile (avatar, verified)
+    // 3) Fallback to Bearer token if present
+    // credentials:'include' ensures cookies are sent for session auth
     (async () => {
       try {
-        const raw = localStorage.getItem('user')
+        const raw = localStorage.getItem('user');
         if (raw) {
-          setCurrentUser(JSON.parse(raw))
-        } else {
-          const at = localStorage.getItem('accessToken')
-          if (at) {
-            const res = await fetch(`${API_BASE}/auth/me`, {
-              headers: { Authorization: `Bearer ${at}` },
-              credentials: 'include',
-            })
-            if (res.ok) {
-              const { user } = await res.json()
-              setCurrentUser(user)
-              localStorage.setItem('user', JSON.stringify(user))
-            }
+          setCurrentUser(JSON.parse(raw));
+          return;
+        }
+
+        // 1) Prefer cookie-based session to get full profile (includes verified, avatar, etc.)
+        const r1 = await fetch(`${API_BASE}/users/me`, { credentials: 'include' });
+        if (r1.ok) {
+          const data = await r1.json();
+          setCurrentUser(data);
+          localStorage.setItem('user', JSON.stringify(data));
+          return;
+        }
+
+        // 2) Fallback: Bearer access token
+        const at = localStorage.getItem('accessToken');
+        if (at) {
+          const r2 = await fetch(`${API_BASE}/auth/me`, {
+            headers: { Authorization: `Bearer ${at}` },
+            credentials: 'include',
+          });
+          if (r2.ok) {
+            const { user } = await r2.json();
+            setCurrentUser(user);
+            localStorage.setItem('user', JSON.stringify(user));
           }
         }
       } catch {}
     })()
   }, [])
 
+  // Normalized feed item used by <Tweet/>
   type FeedItem = {
     id: string;
     userFullName: string;
     username: string;
+    avatar?: string;
     text: string;
     createdAt?: string;
     relative_time?: string;
     likes?: number;
+    liked?: boolean;
     retweets?: number;
     replies?: number;
     views?: number | string;
   }
   const [posts, setPosts] = useState<FeedItem[]>([])
 
-  async function loadFeed() {
-    try {
-      const r = await fetch(`${API_BASE}/posts/feed/global`, { credentials: 'include' })
-      if (!r.ok) return
-      const data = await r.json()
-      const mapped: FeedItem[] = (data?.items || []).map((it: any) => ({
-        id: String(it?.id || ''),
-        userFullName: it?.user?.fullName || it?.user?.username || 'Unknown',
-        username: it?.user?.username || 'unknown',
-        text: it?.text || '',
-        createdAt: it?.relative_time || it?.createdAt || (it?.createdAt ? timeAgo(it.createdAt) : ''),
-        likes: typeof it?.like_count === 'number' ? it.like_count : 0,
-        retweets: typeof it?.repost_count === 'number' ? it.repost_count : 0,
-        replies: typeof it?.reply_count === 'number' ? it.reply_count : 0,
-        views: typeof it?.view_count === 'number' ? it.view_count : 0,
-      }))
-      setPosts(mapped)
-    } catch {}
+  // Feed ranking algorithms
+  type Algo = 'most_comments'|'most_likes'|'followed_first'|'followers_first'|'longest_text';
+
+  function pickAlgo(): Algo {
+    const arr: Algo[] = ['most_comments','most_likes','followed_first','followers_first','longest_text'];
+    return arr[Math.floor(Math.random()*arr.length)];
   }
 
-  useEffect(() => { loadFeed() }, [])
+  async function fetchSocialSets(base: string){
+    const opts: RequestInit = { credentials: 'include' };
+    try {
+      const [a,b] = await Promise.allSettled([
+        fetch(`${base}/users/me/following`, opts),
+        fetch(`${base}/users/me/followers`, opts),
+      ]);
+      const following = (a.status==='fulfilled' && a.value.ok ? await a.value.json() : []) as any[];
+      const followers = (b.status==='fulfilled' && b.value.ok ? await b.value.json() : []) as any[];
+      const toSet = (arr:any[]) => new Set(arr.map((u:any)=> u?.username || u?.user?.username || u));
+      return { followingSet: toSet(following), followersSet: toSet(followers) };
+    } catch {
+      return { followingSet: new Set<string>(), followersSet: new Set<string>() };
+    }
+  }
 
+  function orderByAlgo(items: FeedItem[], algo: Algo, followingSet: Set<string>, followersSet: Set<string>): FeedItem[] {
+    const arr = [...items];
+    switch(algo){
+      // 1) Most comments first
+      case 'most_comments':
+        return arr.sort((a,b)=> (b.replies ?? 0) - (a.replies ?? 0));
+      // 2) Most likes first
+      case 'most_likes':
+        return arr.sort((a,b)=> (b.likes ?? 0) - (a.likes ?? 0));
+      // 3) People you follow first
+      case 'followed_first':
+        return arr.sort((a,b)=> {
+          const af = followingSet.has(a.username) ? 1 : 0;
+          const bf = followingSet.has(b.username) ? 1 : 0;
+          if (bf !== af) return bf - af;
+          return 0;
+        });
+      // 4) People who follow you first
+      case 'followers_first':
+        return arr.sort((a,b)=> {
+          const af = followersSet.has(a.username) ? 1 : 0;
+          const bf = followersSet.has(b.username) ? 1 : 0;
+          if (bf !== af) return bf - af;
+          return 0;
+        });
+      // 5) Longest text first
+      case 'longest_text':
+        return arr.sort((a,b)=> (b.text?.length || 0) - (a.text?.length || 0));
+      default:
+        return arr;
+    }
+  }
+
+  /**
+   * Fetch ALL posts by walking the cursor until exhausted and normalize to <Tweet/> props.
+   */
+  async function loadFeed() {
+    try {
+      const base = `${API_BASE}/posts/feed/global`;
+      const all: any[] = [];
+      let cursor: string | null = null;
+
+      for (let i = 0; i < 50; i++) {
+        const url = cursor ? `${base}?cursor=${encodeURIComponent(cursor)}` : base;
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) throw new Error('feed_failed');
+        const data = await res.json();
+        const page = Array.isArray(data?.items) ? data.items : [];
+        all.push(...page);
+        cursor = data?.nextCursor || null;
+        if (!cursor) break;
+      }
+
+      const mapped: FeedItem[] = all.map((it: any) => ({
+        id: String(it?.id || ''),
+        userFullName: it?.user?.fullName || it?.userFullName || it?.username || 'Unknown',
+        username: it?.user?.username || it?.username || 'unknown',
+        avatar: it?.user?.avatar ?? it?.avatar ?? '',
+        text: it?.text || '',
+        createdAt: it?.relative_time || it?.created_at || it?.createdAt || '',
+        likes: typeof it?.like_count === 'number' ? it.like_count : (typeof it?.likes === 'number' ? it.likes : 0),
+        liked: !!(it?.liked),
+        retweets: typeof it?.repost_count === 'number' ? it.repost_count : (it?.retweets ?? 0),
+        replies: typeof it?.reply_count === 'number' ? it.reply_count : (it?.replies ?? 0),
+        views: typeof it?.view_count === 'number' ? it.view_count : (it?.views ?? 0),
+      }));
+
+      // Pick one of five algorithms at random each time we load
+      const algo = pickAlgo();
+      const { followingSet, followersSet } = await fetchSocialSets(API_BASE);
+      const ordered = orderByAlgo(mapped, algo, followingSet, followersSet);
+      setPosts(ordered);
+    } catch (e) {
+      console.error('loadFeed error', e);
+      setPosts([]);
+    }
+  }
+
+  // Initial feed load
+  useEffect(() => { loadFeed() }, [])
+  // Expose a global refresher used by Composer and other emitters
+  useEffect(() => {
+    (window as any).loadFeed = () => loadFeed();
+    return () => {
+      delete (window as any).loadFeed;
+    };
+  }, []);
+  // Listen for CustomEvent('feed:refresh') and reload
+  useEffect(() => {
+    const h = () => loadFeed();
+    window.addEventListener('feed:refresh', h as unknown as EventListener);
+    return () => window.removeEventListener('feed:refresh', h as unknown as EventListener);
+  }, []);
+
+  // UI state: active page, settings page toggle, and theme
   const [active, setActive] = useState<"home"|"messages"|"notifications"|"moment"|"profile">("home");
+  const [showSettings, setShowSettings] = useState(false);
+  const [darkMode] = useState(localStorage.getItem("theme") === "dark");
+
+  // Apply theme to <html data-theme> and persist choice
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   return (
     <div>  
+      {/* Sticky translucent header: logo, search, top nav tabs, profile pill, settings icon */}
       <nav
         className="top-nav"
         style={{
@@ -136,10 +283,12 @@ export default function App(){
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* Logo with circular background */}
           <img src="/logos/logo.svg" alt="Twitter" width={45} height={45} style={{ borderRadius: "50%", backgroundColor: "transparent",}}/>
           <h1 style={{ margin: 0, fontSize: "1.5rem", color: "var(--primary)", fontWeight: "bold" }}>Tweaker</h1>
         </div>
         <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+          {/* Search bar with absolute icon + padded input for icon space */}
           <div style={{ position: "relative", width: "100%", maxWidth: "400px" }}>
             <img
               src="/icons/search.svg"
@@ -176,148 +325,163 @@ export default function App(){
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div
               style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}
-              onClick={() => setActive("home")}
+              onClick={() => {
+                setActive("home");
+                setShowSettings(false);
+              }} // set active tab and reset settings
             >
               <img src="/icons/home.svg" alt="Home" width={22} height={22} />
               {active === "home" && <span style={{ fontSize: "13px", color: "#333" }}>Home</span>}
             </div>
             <div
               style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}
-              onClick={() => setActive("moment")}
+              onClick={() => setActive("moment")} // set active tab
             >
               <img src="/icons/moment.svg" alt="Moment" width={22} height={22} />
               {active === "moment" && <span style={{ fontSize: "13px", color: "#333" }}>Moment</span>}
             </div>
             <div
               style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}
-              onClick={() => setActive("messages")}
+              onClick={() => setActive("messages")} // set active tab
             >
               <img src="/icons/message.svg" alt="Messages" width={22} height={22} />
               {active === "messages" && <span style={{ fontSize: "13px", color: "#333" }}>Messages</span>}
             </div>
             <div
               style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}
-              onClick={() => setActive("notifications")}
+              onClick={() => setActive("notifications")} // set active tab
             >
               <img src="/icons/notification.svg" alt="Notifications" width={22} height={22} />
               {active === "notifications" && <span style={{ fontSize: "13px", color: "#333" }}>Notifications</span>}
             </div>
           </div>
-          {/* Profile pill + menu */}
+          {/* Profile pill: avatar, verified badge, and username with nowrap */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               {/* Vertical separator */}
               <div style={{
                   width: "1.5px",
                   height: "30px",}}
               />
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 8px", borderRadius: "999px", background: "var(--panel-alt)", border: "1px solid rgba(0,0,0,0.08)" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 8px", borderRadius: "999px", background: "var(--panel-alt)", border: "1px solid rgba(0,0,0,0.08)", cursor: "pointer" }}
+                title="View profile"
+                onClick={() => { setActive('profile'); setShowSettings(false); }}
+              >
                   <img
-                      src="/images/avatar.png"
+                      src={currentUser?.avatar || "/images/avatar.png"}
                       alt="Profile"
                       width={28}
                       height={28}
                       style={{ borderRadius: "50%" }}
                   />
-                  <span style={{ fontWeight: 600, color: "var(--text)", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span style={{ fontWeight: 600, color: "var(--text)", display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                       {currentUser?.fullName || currentUser?.username || 'Guest'}
-                      <img src="/icons/verified.svg" alt="Verified" width={20} height={20} />
+                      {currentUser?.verified && <FaCheckCircle size={16} color="var(--primary)" />}
                   </span>
               </div>
-              <img src="/icons/menu.svg" alt="Menu" width={22} height={22} />
+              <img
+                src="/icons/setting.png"
+                alt="Settings"
+                width={22}
+                height={22}
+                style={{ cursor: "pointer", marginRight: "2%", }}
+                onClick={() => setShowSettings(true)} // open settings page with animation
+              />
           </div>
         </div>
       </nav>
       <div style={{ height: "60px" }} />
+      {/* Three-column layout. Left is fixed sidebar, center is route content, right is supplemental (Trends). */}
       <AppShell
         left={
         <div style={{ 
+          // Fixed sidebar to remain visible on scroll
           position: "fixed",
           top: "10%",
           overflowY: "auto",
           width: "22%"
         }}>
-          {active !== 'profile' && (
-            <>
-              <SidebarCard
-                fullName={currentUser?.fullName || currentUser?.username || "Guest"}
-                username={currentUser?.username || "guest"}
-                onProfileClick={() => setActive('profile')}
-              />
-              <div style={{height:16}}/>
-            </>
-          )}
-          <WhoToFollow/>
+          
+          {/* WhoToFollow hidden when settings is open */}
+          {!showSettings && <WhoToFollow />}
         </div>
       }
-        center={<>
-          {active === 'profile' ? (
-            <Profile
-              fullName={currentUser?.fullName || currentUser?.username || "Guest"}
-              verified={currentUser?.verified}
-              username={currentUser?.username || "guest"}
-              bio={currentUser?.bio || ""}
-              link={currentUser?.link || undefined}
-              joinedDate={currentUser?.joinedDate || ""}
-              following={currentUser?.following ?? 0}
-              followers={currentUser?.followers ?? 0}
-              coverImage={currentUser?.coverImage || undefined}
-              avatar={currentUser?.avatar || undefined}
-            />
-          ) : (
+        center={
+          <>
+          {/* Conditional rendering: settings page supersedes others */}
+          {showSettings ? (
+              
+                <Settings />
+  
+          ) : active === "home" ? (
             <>
-              <Composer
-                onPost={async (t) => {
-                  try {
-                    const at = localStorage.getItem('accessToken') || ''
-                    await fetch(`${API_BASE}/posts`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${at}` },
-                      credentials: 'include',
-                      body: JSON.stringify({ text: t }),
-                    })
-                    await loadFeed()
-                  } catch {}
-                }}
-              />
+              {/* Home: Compose new tweet + feed */}
+              <Composer />
               {posts.map((p) => (
                 <Tweet
                   id={p.id}
                   key={p.id || `${p.username}-${p.createdAt}`}
                   fullName={p.userFullName}
                   username={p.username}
+                  avatar={p.avatar}
                   text={p.text}
                   created_at={p.createdAt}
                   likes={p.likes}
                   retweets={p.retweets}
                   replies={p.replies}
                   views={p.views}
+                  liked={p.liked}
                 />
               ))}
             </>
-          )}
-        </>}
+          ) : active === "profile" ? (
+            // Profile page shows current user profile details
+            <Profile
+              fullName={currentUser?.fullName || currentUser?.username || "Guest"}
+              verified={currentUser?.verified}
+              username={currentUser?.username || "guest"}
+              bio={currentUser?.bio || ""}
+              link={currentUser?.link || undefined}
+              following={currentUser?.following ?? 0}
+              followers={currentUser?.followers ?? 0}
+              coverImage={currentUser?.coverImage || undefined}
+              avatar={currentUser?.avatar || undefined}
+            />
+          ) : null}
+          </>
+        }
         right={
-        <div style={{
-          position: "fixed",
-          top: "12%",
-          overflowY: "auto",
-          width: "25%"
-        }}><Trends/></div>}
+          // Right column shows on Home and Profile. Hidden on Settings.
+          !showSettings && (active === "home" || active === "profile") && (
+            <div style={{
+              position: "fixed",
+              top: "12%",
+              overflowY: "auto",
+              width: "25%"
+            }}>
+              <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+                <Trends />
+                <footer
+                  style={{
+                    marginTop: "20%",
+                    fontSize: "12px",
+                    color: "var(--muted)",
+                    textAlign: "center",
+                    lineHeight: "1.6",
+                  }}
+                >
+                  {/* Static informational links about the app and policies */}
+                  <span>About</span> | <span>Help</span> | <span>Privacy Policy</span> |{" "}
+                  <span>Terms of Service</span> | <span>Cookie Policy</span> |{" "}
+                  <span>IP Address Policy</span>
+                  <div style={{ marginTop: "8px" }}>© 2025 Tweaker from Nyxel</div>
+                </footer>
+              </div>
+            </div>
+          )
+        }
       />
-      <style>{`
-        .top-nav { transition: box-shadow 0.2s ease; }
-      
-        .search-bar:focus {
-          border: 1px solid #a305a6;
-          transform: scale(1.03);
-          animation: popOut 0.6s ease forwards;
-        }
 
-        @keyframes popOut {
-          0% { transform: scale(1); }
-          100% { transform: scale(1.03); }
-        }
-      `}</style>
     </div>
   );
 }

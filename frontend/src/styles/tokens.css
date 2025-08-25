@@ -7,10 +7,11 @@
   --muted: #676767;      /* muted text (gray) */
   --primary: #9d33ee;    /* primary accent */
   --success: #17BF63;    /* green for success */
-  --danger: #E0245E;     /* pinkish red for danger */
+  --danger: #d32f2f;     /* pinkish red for danger */
   --radius: 2em;
   --shadow: 0 8px 24px rgba(0,0,0,0.15);
   --ring: 0 0 0 2px var(--primary);
+  --dim-bg: #b1afaf6d;
 }
 
 * {

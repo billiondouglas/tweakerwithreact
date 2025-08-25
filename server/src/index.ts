@@ -43,14 +43,24 @@ import { authenticateJWT } from './middleware/authenticate.js'
 /** Express app bootstrap */
 const app = express()
 
+app.set('trust proxy', 1)
+app.use((req, _res, next) => {
+  if (process.env.NODE_ENV !== 'test') {
+    console.log(`[REQ] ${req.method} ${req.originalUrl}`)
+  }
+  next()
+})
+
 /**
  * Global middleware
  *  • helmet: sets secure HTTP headers
- *  • express.json: parses JSON bodies
+ *  • express.json: parses JSON bodies with higher limit
+ *  • express.urlencoded: parses urlencoded bodies
  *  • cookieParser: parses and verifies signed cookies (refresh token)
  */
 app.use(helmet())
-app.use(express.json())
+app.use(express.json({ limit: '2mb' }))
+app.use(express.urlencoded({ extended: true, limit: '2mb' }))
 app.use(cookieParser(process.env.COOKIE_SECRET || 'fallback_cookie_secret'))
 
 /**
@@ -73,11 +83,18 @@ const corsOpts: cors.CorsOptions = {
     return cb(new Error('CORS blocked'))
   },
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Authorization'],
+  maxAge: 86400,
 }
 app.use(cors(corsOpts))
 app.options('*', cors(corsOpts))
+
+/** Liveness + DB status */
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, db: mongoose.connection.readyState, dbName: mongoose.connection.db?.databaseName || null })
+})
 
 /** Mount feature routers */
 app.use('/api/posts', posts)
@@ -112,7 +129,7 @@ if (!mongoUri || typeof mongoUri !== 'string') {
 const DB_NAME = process.env.MONGO_DB
 
 mongoose
-  .connect(mongoUri, DB_NAME ? { dbName: DB_NAME } : undefined)
+  .connect(mongoUri, DB_NAME ? { dbName: DB_NAME, serverSelectionTimeoutMS: 15000 } : { serverSelectionTimeoutMS: 15000 })
   .then(() => {
     // @ts-ignore — driver type may not expose .db
     console.log('✅ MongoDB connected (db =', mongoose.connection.db?.databaseName || '(from URI)', ')')
@@ -121,17 +138,16 @@ mongoose
     })
   })
   .catch((err) => {
-    console.error('MongoDB error:', err)
+    if (err.name === 'MongoServerSelectionError') {
+      console.error('MongoDB connection timeout:', err.message)
+    } else {
+      console.error('MongoDB error:', err)
+    }
     process.exit(1)
   })
 
-/** Liveness + DB status */
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, db: mongoose.connection.readyState, dbName: mongoose.connection.db?.databaseName || null })
-})
-
 /** Return fresh profile from DB for the current access token */
-app.get('/auth/me', authenticateJWT, async (req: Request & { user?: any }, res: Response) => {
+app.get('/api/auth/me', authenticateJWT, async (req: Request & { user?: any }, res: Response) => {
   try {
     const u = await User.findById(req.user?._id).select('_id username fullName')
     if (!u) return res.status(404).json({ error: 'User not found' })
@@ -142,12 +158,12 @@ app.get('/auth/me', authenticateJWT, async (req: Request & { user?: any }, res: 
 })
 
 /** Simple probe to test that JWT middleware works */
-app.get('/protected', authenticateJWT, (req: Request & { user?: any }, res: Response) => {
+app.get('/api/protected', authenticateJWT, (req: Request & { user?: any }, res: Response) => {
   res.json({ ok: true, user: req.user })
 })
 
 // signup route
-app.post('/signup', signupLimiter, async (req: Request, res: Response) => {
+app.post('/api/auth/signup', signupLimiter, async (req: Request, res: Response) => {
   // Normalize input
   const username = String((req.body as any)?.username || '').trim().toLowerCase()
   const fullName = String((req.body as any)?.fullName || '').trim()
@@ -199,4 +215,56 @@ app.post('/signup', signupLimiter, async (req: Request, res: Response) => {
     console.error(err)
     return res.status(500).json({ error: '⚠️ Signup failed' })
   }
+})
+
+// Alias: some clients call /api/signup — keep behavior identical to /api/auth/signup
+app.post('/api/signup', signupLimiter, async (req: Request, res: Response) => {
+  const username = String((req.body as any)?.username || '').trim().toLowerCase()
+  const fullName = String((req.body as any)?.fullName || '').trim()
+
+  if (!/^[a-zA-Z\s]{2,50}$/.test(fullName)) {
+    return res.status(400).json({ error: '⚠️ Full name must be 2–50 letters and spaces only' })
+  }
+  if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+    return res.status(400).json({ error: '⚠️ Invalid username format' })
+  }
+  const password = String((req.body as any)?.password || '').trim()
+  if (username.length < 3 || password.length < 6) {
+    return res.status(400).json({ error: '⚠️ Password or username too short' })
+  }
+
+  try {
+    const existing = await User.findOne({ username })
+    if (existing) return res.status(400).json({ error: '⚠️ Username already exists' })
+
+    const hashed = await bcrypt.hash(password, 10)
+    const secretKey = Array.from({ length: 12 }).map(() => Math.random().toString(36).slice(2, 6)).join(' ')
+
+    const user = await User.create({ username, fullName, password: hashed, secretKey })
+
+    const accessToken = jwt.sign({ _id: user._id.toString(), username: user.username }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN })
+    const refreshToken = jwt.sign({ _id: user._id.toString(), username: user.username }, JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRES_IN })
+
+    res.cookie('rt', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+      signed: true,
+    })
+
+    return res.status(201).json({ message: 'User created', secretKey, accessToken, user: { _id: user._id, username: user.username, fullName: user.fullName } })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: '⚠️ Signup failed' })
+  }
+})
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[ERR]', err?.message || err)
+  if (err?.message === 'CORS blocked') {
+    return res.status(403).json({ error: 'CORS blocked' })
+  }
+  res.status(500).json({ error: 'server_error' })
 })

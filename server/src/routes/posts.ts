@@ -25,6 +25,8 @@ import { authenticateJWT } from '../middleware/authenticate.js'
 import { sanitizeTweetText } from '../utils/text.js'
 import { timeAgo } from "../utils/text.js";
 import User from '../models/user.js'
+import Post from '../models/post.js'
+import jwt from 'jsonwebtoken'
 
 const router = Router()
 
@@ -33,6 +35,19 @@ const router = Router()
 // ----------------------------------------------------------------------------
 /** Maximum characters allowed for a post */
 const MAX_TWEET_LEN = 280
+
+function getUserId(req: Request): string | undefined {
+  try {
+    const hdr = req.headers.authorization || ''
+    const bearer = hdr.startsWith('Bearer ') ? hdr.slice(7) : undefined
+    const token = bearer || (req as any).cookies?.token || (req as any).cookies?.rt
+    if (!token) return undefined
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as any
+    return (payload?.sub || payload?.id || payload?._id) as string | undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Returns a human-friendly relative time string like "5s ago", "3m ago", "1h ago", etc.
@@ -80,14 +95,19 @@ router.post('/', authenticateJWT, async (req: Request & { user?: any }, res: Res
     createdAt: new Date(),
   })
 
-  const author = await User.findOne({ username: doc.username }).select('fullName username').lean()
+  const author = await User.findOne({ username: doc.username }).select('fullName username avatar verified').lean()
 
   res.status(201).json({
     id: String(doc._id),
     text: doc.text,
     created_at: doc.createdAt.toISOString(),
     relative_time: timeAgo(doc.createdAt),
-    user: { fullName: author?.fullName || doc.username, username: doc.username },
+    user: {
+      fullName: author?.fullName || doc.username,
+      username: doc.username,
+      avatar: (author as any)?.avatar || null,
+      verified: !!((author as any)?.verified),
+    },
     like_count: Array.isArray((doc as any).likes) ? (doc as any).likes.length : Array.isArray((doc as any).likesBy) ? (doc as any).likesBy.length : 0,
     repost_count: Array.isArray(doc.retweets) ? doc.retweets.length : 0,
     reply_count: Array.isArray(doc.comments) ? doc.comments.length : 0,
@@ -107,13 +127,19 @@ router.get('/feed/global', async (req: Request, res: Response) => {
   const query = buildCursorQuery(cursor)
 
   const items = await Tweet.find(query).sort(sort).limit(take)
+  const usernames = Array.from(new Set(items.map(p => p.username)))
+  const authors = await User.find({ username: { $in: usernames } }).select('username fullName avatar verified').lean()
+  const metaByUsername = new Map<string, { fullName: string; avatar?: string | null; verified: boolean }>(
+    authors.map(a => [
+      a.username,
+      { fullName: (a as any).fullName, avatar: (a as any).avatar || null, verified: !!(a as any).verified },
+    ])
+  )
+  const me = getUserId(req)
+
   const next = items.length === take
     ? `${items[items.length - 1].createdAt.toISOString()}|${items[items.length - 1]._id}`
     : null
-
-  const usernames = Array.from(new Set(items.map(p => p.username)))
-  const authors = await User.find({ username: { $in: usernames } }).select('username fullName').lean()
-  const nameByUsername = new Map<string, string>(authors.map(a => [a.username, a.fullName as any]))
 
   res.json({
     items: items.map(p => ({
@@ -122,8 +148,14 @@ router.get('/feed/global', async (req: Request, res: Response) => {
       created_at: p.createdAt.toISOString(),
       relative_time: timeAgo(p.createdAt),
       parent_post_id: null,
-      user: { fullName: nameByUsername.get(p.username) || p.username, username: p.username },
+      user: {
+        fullName: (metaByUsername.get(p.username)?.fullName) || p.username,
+        username: p.username,
+        avatar: metaByUsername.get(p.username)?.avatar || null,
+        verified: metaByUsername.get(p.username)?.verified || false,
+      },
       like_count: (Array.isArray((p as any).likes) ? (p as any).likes.length : Array.isArray((p as any).likesBy) ? (p as any).likesBy.length : 0),
+      liked: !!( me && Array.isArray((p as any).likes) && (p as any).likes.some((u:any)=> String(u)===String(me)) ),
       repost_count: p.retweets?.length || 0,
       reply_count: p.comments?.length || 0,
       view_count: (p as any).views ?? 0,
@@ -139,14 +171,19 @@ router.get('/feed/global', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   const p = await Tweet.findById(req.params.id)
   if (!p) return res.status(404).json({ error: 'not_found' })
-  const author = await User.findOne({ username: p.username }).select('fullName username').lean()
+  const author = await User.findOne({ username: p.username }).select('fullName username avatar verified').lean()
   res.json({
     id: String(p._id),
     text: p.text,
     created_at: p.createdAt.toISOString(),
     relative_time: timeAgo(p.createdAt),
     parent_post_id: null,
-    user: { fullName: author?.fullName || p.username, username: p.username },
+    user: {
+      fullName: author?.fullName || p.username,
+      username: p.username,
+      avatar: (author as any)?.avatar || null,
+      verified: !!((author as any)?.verified),
+    },
     like_count: (Array.isArray((p as any).likes) ? (p as any).likes.length : Array.isArray((p as any).likesBy) ? (p as any).likesBy.length : 0),
     repost_count: p.retweets?.length || 0,
     reply_count: p.comments?.length || 0,
@@ -159,35 +196,21 @@ router.get('/:id', async (req: Request, res: Response) => {
  * DELETE /posts/:id/like — ensure unliked
  */
 router.post('/:id/like', authenticateJWT, async (req: Request & { user?: any }, res: Response) => {
-  const t = await Tweet.findById(req.params.id)
-  if (!t) return res.status(404).json({ error: 'not_found' })
-  const uid = req.user!._id
-  const has = (t.likes || []).some((id: any) => String(id) === String(uid))
-
-  // Step 1: accept body `{ like: boolean }` for explicit set; fallback to toggle if undefined
-  const desired: boolean | undefined = typeof req.body?.like === 'boolean' ? Boolean(req.body.like) : undefined
-
-  if (desired === undefined) {
-    // legacy toggle
-    t.likes = has ? (t.likes || []).filter((id: any) => String(id) !== String(uid)) : [ ...(t.likes || []), uid ]
-  } else if (desired && !has) {
-    t.likes = [ ...(t.likes || []), uid ]
-  } else if (!desired && has) {
-    t.likes = (t.likes || []).filter((id: any) => String(id) !== String(uid))
-  } // else no change needed
-
-  await t.save()
-  const liked = (t.likes || []).some((id: any) => String(id) === String(uid))
-  res.json({ ok: true, liked, like_count: t.likes.length })
-})
+  const { id } = req.params;
+  const uid = req.user!._id;
+  await Tweet.updateOne({ _id: id }, { $addToSet: { likes: uid } });
+  const t = await Tweet.findById(id).select('likes').lean();
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true, liked: true, like_count: (t as any).likes?.length || 0 });
+});
 
 router.delete('/:id/like', authenticateJWT, async (req: Request & { user?: any }, res: Response) => {
-  const t = await Tweet.findById(req.params.id)
-  if (!t) return res.status(404).json({ error: 'not_found' })
-  const uid = req.user!._id
-  t.likes = (t.likes || []).filter((id: any) => String(id) !== String(uid))
-  await t.save()
-  res.json({ ok: true, liked: false, like_count: t.likes.length })
+  const { id } = req.params;
+  const uid = req.user!._id;
+  await Tweet.updateOne({ _id: id }, { $pull: { likes: uid } });
+  const t = await Tweet.findById(id).select('likes').lean();
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true, liked: false, like_count: (t as any).likes?.length || 0 });
 })
 
 /**
@@ -233,6 +256,7 @@ router.post('/:id/report', async (req: Request, res: Response) => {
 router.get('/user/:username', async (req: Request, res: Response) => {
   const { username } = req.params
   const cursor = (req.query.cursor as string | undefined) ?? undefined
+  const me = getUserId(req)
   const take = 20
   const sort = { createdAt: -1, _id: -1 } as const
 
@@ -245,8 +269,10 @@ router.get('/user/:username', async (req: Request, res: Response) => {
     : null
 
   // single author lookup
-  const author = await User.findOne({ username }).select('username fullName').lean()
+  const author = await User.findOne({ username }).select('username fullName avatar verified').lean()
   const fullName = author?.fullName || username
+  const avatar = (author as any)?.avatar || null
+  const verified = !!((author as any)?.verified)
 
   res.json({
     items: items.map(p => ({
@@ -255,8 +281,9 @@ router.get('/user/:username', async (req: Request, res: Response) => {
       created_at: p.createdAt.toISOString(),
       relative_time: timeAgo(p.createdAt),
       parent_post_id: null,
-      user: { fullName, username },
+      user: { fullName, username, avatar, verified },
       like_count: (Array.isArray((p as any).likes) ? (p as any).likes.length : Array.isArray((p as any).likesBy) ? (p as any).likesBy.length : 0),
+      liked: !!( me && Array.isArray((p as any).likes) && (p as any).likes.some((u:any)=> String(u)===String(me)) ),
       repost_count: p.retweets?.length || 0,
       reply_count: p.comments?.length || 0,
       view_count: (p as any).views ?? 0,
@@ -264,5 +291,28 @@ router.get('/user/:username', async (req: Request, res: Response) => {
     nextCursor: next,
   })
 })
+
+/**
+ * POST /posts/:id/like/toggle — per-user idempotent toggle
+ * If user already liked → unlike; else → like. Always returns latest like_count.
+ */
+router.post('/:id/like/toggle', authenticateJWT, async (req: Request & { user?: any }, res: Response) => {
+  const { id } = req.params;
+  const uid = req.user!._id;
+
+  // Check if already liked
+  const already = await Tweet.exists({ _id: id, likes: uid });
+
+  if (already) {
+    await Tweet.updateOne({ _id: id }, { $pull: { likes: uid } });
+  } else {
+    await Tweet.updateOne({ _id: id }, { $addToSet: { likes: uid } });
+  }
+
+  const t = await Tweet.findById(id).select('likes').lean();
+  if (!t) return res.status(404).json({ error: 'not_found' });
+
+  return res.json({ ok: true, liked: !already, like_count: (t as any).likes?.length || 0 });
+});
 
 export default router

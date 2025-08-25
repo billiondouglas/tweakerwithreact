@@ -70,7 +70,7 @@ export default function Signup() {
     padding: '2.5rem',
     borderRadius: '2em',
     width: '100%',
-    maxWidth: '400px',
+    maxWidth: '700px',
     margin: '2rem auto',
     boxSizing: 'border-box',
   }
@@ -83,9 +83,10 @@ export default function Signup() {
     marginTop: '1rem',
     color: '#ffffff',
     textAlign: 'left',
+    marginLeft: '20%'
 }
   const inputBaseStyle: React.CSSProperties = {
-    width: '100%',
+    width: '60%',
     padding: '0.7rem',
     marginTop: '0.5rem',
     border: '1px solid #555',
@@ -98,7 +99,7 @@ export default function Signup() {
     transition: 'box-shadow 0.2s',
   }
   const buttonStyle: React.CSSProperties = {
-    width: '100%',
+    width: '60%',
     marginTop: '2rem',
     padding: '0.7rem',
     backgroundColor: '#a305a6',

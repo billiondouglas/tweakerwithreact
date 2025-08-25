@@ -45,7 +45,7 @@ export default function Login() {
   }
 
   const containerStyle: React.CSSProperties = {
-    maxWidth: '400px',
+    maxWidth: '700px',
     margin: '2rem auto',
     padding: '2rem',
     borderRadius: '2em',
@@ -58,10 +58,11 @@ export default function Login() {
     marginTop: '1rem',
     color: '#ffffff',
     textAlign: 'left',
+    marginLeft: '20%'
   }
 
   const inputBaseStyle: React.CSSProperties = {
-    width: '100%',
+    width: '60%',
     padding: '0.8rem',
     marginTop: '0.5rem',
     border: '1px solid #555',
@@ -83,7 +84,7 @@ export default function Login() {
   }
 
   const buttonStyle: React.CSSProperties = {
-    width: '100%',
+    width: '60%',
     marginTop: '2rem',
     padding: '0.8rem',
     backgroundColor: '#a305a6',

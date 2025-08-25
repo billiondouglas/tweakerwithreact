@@ -192,10 +192,10 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     username = username.trim().toLowerCase()
 
     const user = await User.findOne({ username })
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' })
+    if (!user) return res.status(401).json({ error: 'Invalid username' })
 
     const ok = await bcrypt.compare(password, user.password)
-    if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
+    if (!ok) return res.status(401).json({ error: 'wrong password ' })
 
     const accessToken = sign(
       { _id: user._id.toString(), username: user.username },

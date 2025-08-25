@@ -12,9 +12,10 @@ import { TbGif } from "react-icons/tb"; // GIF wordmark icon
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:4000';
 
-type ComposerProps = { onPost?: (text: string) => void }
-export function Composer({ onPost }: ComposerProps) {
+type ComposerProps = {}
+export function Composer({}: ComposerProps) {
   const [text, setText] = useState("");
+  const [posting, setPosting] = useState(false);
   const maxChars = 280;
   const remaining = maxChars - text.length;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -25,6 +26,16 @@ export function Composer({ onPost }: ComposerProps) {
       textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
     }
   }, [text]);
+
+  useEffect(() => {
+    const h = () => {
+      if (typeof (window as any).loadFeed === "function") {
+        (window as any).loadFeed();
+      }
+    };
+    window.addEventListener('feed:refresh', h);
+    return () => window.removeEventListener('feed:refresh', h);
+  }, []);
 
   async function refreshAccessToken() {
     try {
@@ -107,7 +118,6 @@ export function Composer({ onPost }: ComposerProps) {
           <IconWithLabel label="GIF"><TbGif size={22} color="var(--primary)" /></IconWithLabel>
           <IconWithLabel label="Poll"><FaSlidersH size={22} color="var(--primary)" /></IconWithLabel>
           <IconWithLabel label="Emoji"><FaRegSmile size={22} color="var(--primary)" /></IconWithLabel>
-         {/*<IconWithLabel label="Schedule"><FaRegCalendarAlt size={22} color="var(--primary)" /></IconWithLabel>*/}
           <IconWithLabel label="Location"><FaMapMarkerAlt size={22} color="var(--primary)" /></IconWithLabel>
         </div>
 
@@ -115,33 +125,39 @@ export function Composer({ onPost }: ComposerProps) {
         <div style={{ marginLeft: "auto" }}>
           <button
             className="btn"
-            style={{ cursor: (!text.trim() || remaining < 0) ? 'not-allowed' : 'pointer' }}
+            style={{ cursor: (posting || !text.trim() || remaining < 0) ? 'not-allowed' : 'pointer', opacity: posting ? 0.7 : 1 }}
             onClick={async () => {
-              const payload = text.trim()
+              if (posting) return; // prevent double submit
+              const payload = text.trim();
               if (!payload) {
-                console.warn('Post blocked: empty text')
-                return
+                console.warn('Post blocked: empty text');
+                return;
               }
               if (remaining < 0) {
-                console.warn('Post blocked: over 280 characters')
-                return
+                console.warn('Post blocked: over 280 characters');
+                return;
               }
-              const at = localStorage.getItem('accessToken')
-              if (!at) console.warn('No accessToken in localStorage; POST will likely 401')
-              console.debug('POST /posts →', { API_BASE, len: payload.length })
+              const at = localStorage.getItem('accessToken');
+              if (!at) console.warn('No accessToken in localStorage; POST will likely 401');
+              console.debug('POST /posts →', { API_BASE, len: payload.length });
 
-              const result = await postTweet(payload)
-              if (!result.ok) {
-                console.error('Post failed', result.status, result.data || '')
-                return
+              try {
+                setPosting(true);
+                const result = await postTweet(payload);
+                if (!result.ok) {
+                  console.error('Post failed', result.status, result.data || '');
+                  return;
+                }
+                setText('');
+                window.dispatchEvent(new CustomEvent('feed:refresh', { detail: { reason: 'post' } }))
+              } finally {
+                setPosting(false);
               }
-              if (typeof onPost === 'function') onPost(payload)
-              setText('')
             }}
             type="button"
-            disabled={!text.trim() || remaining < 0}
+            disabled={posting || !text.trim() || remaining < 0}
           >
-            Post
+            {posting ? 'Posting…' : 'Post'}
           </button>
         </div>
       </div>

@@ -12,6 +12,8 @@ interface CommentItem {
   likesCount?: number;
   viewsCount?: number;
   verified?: boolean;
+  avatar?: string;      // from API when available
+  avatarUrl?: string;   // alt field name some routes use
 }
 
 interface CommentsProps {
@@ -280,19 +282,11 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
                   {/* Left rail: original avatar → vertical line → replying avatar */}
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 40 }}>
                     {/* Original post avatar */}
-                    <img
-                      src={preview.avatarUrl || "/images/avatar.png"}
-                      alt="avatar"
-                      style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }}
-                    />
+                    <div className="c-avatar"><img src={preview.avatarUrl || "/images/avatar.png"} alt="avatar" /></div>
                     {/* Connector line – stretches only between the avatars */}
                     <div style={{ flex: 1, width: 2, background: "var(--muted)", marginTop: 4, marginBottom: 4 }} />
                     {/* Replying user avatar */}
-                    <img
-                      src={"/images/avatar.png"}
-                      alt="me"
-                      style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", marginBottom: 52 }}
-                    />
+                    <div className="c-avatar" style={{ marginBottom: 52 }}><img src={"/images/avatar.png"} alt="me" /></div>
                   </div>
 
                   {/* Right column: preview meta/text + reply input and button */}
@@ -364,11 +358,7 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
                 // Fallback if preview is missing: keep existing simple form row with single avatar
                 <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                      <img
-                        src={"/images/avatar.png"}
-                        alt="avatar"
-                        style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }}
-                      />
+                      <div className="c-avatar"><img src={"/images/avatar.png"} alt="avatar" /></div>
                       <input
                         type="text"
                         placeholder="Reply to this post…"
@@ -427,11 +417,7 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
               <div style={{ display: "flex", gap: 12 }}>
                 {/* Left rail: avatar + connector line to next comment */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 40 }}>
-                  <img
-                    src={"/images/avatar.png"}
-                    alt={c.username}
-                    style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }}
-                  />
+                  <div className="c-avatar"><img src={c.avatar || c.avatarUrl || "/images/avatar.png"} alt={c.username} /></div>
                   {/* Vertical connector to next item, hidden for the last */}
                   {idx < comments.length - 1 ? (
                     <div style={{ flex: 1, width: 2, background: 'var(--border, #e5e7eb)', marginTop: 6 }} />
@@ -583,6 +569,8 @@ export default function Comments({ postId, onPosted, visible = false, onClose, s
           }
           .c-action:hover .c-tip { opacity: 1; transform: translate(-50%, 10px); }
           .count { font-variant-numeric: tabular-nums; }
+          .c-avatar { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; flex: 0 0 40px; }
+          .c-avatar > img { width: 100%; height: 100%; object-fit: cover; display: block; }
         `}
       </style>
     </>
